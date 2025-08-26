@@ -64,11 +64,11 @@ To reproduce the full analysis:
 
 1. Clone this repository:
 
-&nbsp;  ```bash
+   ```bash
 
 &nbsp;  git clone https://github.com/laurajuliamelis/longitudinal_clustering_comparison
 
-&nbsp;  ```
+```
 
 
 
@@ -80,7 +80,7 @@ To reproduce the full analysis:
 
 
 
-&nbsp;	⚠️*Note: Raw data are not included in this repository due to privacy restrictions.*
+⚠️*Note: Raw data are not included in this repository due to privacy restrictions.*
 
 
 
