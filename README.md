@@ -77,7 +77,7 @@ To reproduce the full analysis:
 
 
 
-⚠️*Note: Raw data are not included in this repository due to privacy restrictions.*
+⚠️*Note: Patients data are not included in this repository due to privacy restrictions.*
 
 
 
