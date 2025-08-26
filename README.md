@@ -68,9 +68,6 @@ To reproduce the full analysis:
    git clone https://github.com/laurajuliamelis/longitudinal_clustering_comparison.git
    ```
 
-```
-
-
 
 2. Open R or RStudio and set the working directory to the repo folder.
 
