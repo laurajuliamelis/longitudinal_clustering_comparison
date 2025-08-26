@@ -65,8 +65,8 @@ To reproduce the full analysis:
 1. Clone this repository:
 
    ```bash
-
-&nbsp;  git clone https://github.com/laurajuliamelis/longitudinal_clustering_comparison
+   git clone https://github.com/laurajuliamelis/longitudinal_clustering_comparison.git
+   ```
 
 ```
 
