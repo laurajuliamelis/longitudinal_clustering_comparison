@@ -1,3 +1,5 @@
+
+[![DOI](https://sandbox.zenodo.org/badge/1045033409.svg)](https://handle.test.datacite.org/10.5072/zenodo.396866)
 # Longitudinal Clustering Comparison
 
 
