@@ -24,7 +24,7 @@ This repository contains the analysis code for the article **"Clustering longitu
 
 
 
-- **2_sSimulated_data_analysis**  
+- **2_Simulated_data_analysis**  
 
 &nbsp; Helper functions for the simulation analyses.  
 
