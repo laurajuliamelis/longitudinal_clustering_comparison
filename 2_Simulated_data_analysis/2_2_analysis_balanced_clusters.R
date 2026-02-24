@@ -1,13 +1,14 @@
 
 # ============================================================================ #
 # ========       LONGITUDINAL CLUSTERING METHODS COMPARISON         ========== #
-# ========              Analysis with simulated data                 ========= #
+# ========   Analysis with simulated data with balanced clusters    ========== #
 # ============================================================================ #
 
 rm(list = ls())
 
 # Set working directory to source file location
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+path <- getwd()
 
 # Load necessary packages:
 library(longitudinalData)
@@ -38,7 +39,7 @@ library(psych)
 library(gtools) 
 
 #Load my functions:
-source("3_simulations_functions.R")
+source("2_1_functions.R")
 
 # -------------------------------------- #
 # 1. DATA SIMULATION SPECIFICATIONS ---- 
@@ -445,163 +446,648 @@ kappa_lcmm_4_sol <- calcular_kappa_clusters(sim_data_4_sol_wide, cluster_cols = 
 # ------------------------------- #
 # 4. SIMULATIONS AND METRICS ----
 # ------------------------------- #
-n_ind <- 240
+library(parallel)
 
-## 4.1. Tres grups ----
-prop_grupos <- c(NonResp = 0.3333333, Fast_Resp = 0.3333333, Slow_Resp = 0.3333333)
+### Configurar valores simulaciones ----
+num_resamples <- 500
+seeds <- 123 + 0:(num_resamples - 1)
 
-### 4.1.1. 3 separats ----
-#### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_3_sep <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                              slopes_values = list(c(4, 3, 0, 0), c(-1, -6, -7, -9), c(-12, -14, -15, -19)),
-                                              sd_b=c(1,1,1), sd_epsilon=c(1,1,1),
-                                              ymin=c(7,7,7), ymax=c(49,49,49), format= "wide", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_3_sep <- end_time - start_time
+n_ind <- 240 # total number of observations (trajectories)
+prop_grupos_3 <- c(NonResp = 0.3333333, Fast_Resp = 0.3333333, Slow_Resp = 0.3333333)
+prop_grupos_4 <- c(Severe_NonResp = 0.25, Moderate_NonResp = 0.25, Fast_Resp = 0.25, Slow_Resp = 0.25)
 
+### Configurar cluster ----
+# Number of available cores
+n_cores <- detectCores()-1
 
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_3_sep <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                              slopes_values = list(c(4, 3, 0, 0), c(-1, -6, -7, -9), c(-12, -14, -15, -19)),
-                                              sd_b=c(1,1,1), sd_epsilon=c(1,1,1),
-                                              ymin=c(7,7,7), ymax=c(49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_3_sep <- end_time - start_time
+# Create a parallel socket cluster (now the workers are separate R session and they're empty)
+cl <- makeCluster(n_cores,outfile="")
 
+# Export objects and/or functions to each worker:
+clusterExport(cl, varlist=c("simular_grupo",
+                            "add_realistic_missingness",
+                            "opt_k_for_metric", 
+                            "analyse_indexes", 
+                            "discards",
+                            "discarded_optimal_summary",
+                            "initialize_clust_results", 
+                            "update_clust_results", 
+                            "perform_clustering_simulation", 
+                            "initialize_lcmm_results", 
+                            "update_lcmm_results", 
+                            "perform_lcmm_simulation",
+                            "n_ind",
+                            "prop_grupos_3",
+                            "prop_grupos_4")) # from .GlobalEnv to the workers
 
-### 4.1.2. 1 separat i 2 solapats ----
-#### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_3_sep_sol <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                                     slopes_values = list(c(4, 3, 0, 0), c(-6, -12, -13, -15), c(-12, -13, -15, -19)),
-                                                     sd_b=c(1,2,2), sd_epsilon=c(2,3,3),
-                                                     ymin=c(7,7,7), ymax=c(49,49,49), format= "wide", time= c(0,2,6,12),
-                                                     num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_3_sep_sol <- end_time - start_time
-
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_3_sep_sol <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                              slopes_values = list(c(4, 3, 0, 0), c(-6, -12, -13, -15), c(-12, -13, -15, -19)),
-                                              sd_b=c(1,2,2), sd_epsilon=c(2,3,3),
-                                              ymin=c(7,7,7), ymax=c(49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_3_sep_sol <- end_time - start_time
+# Execute code inside each worker (load libraries, setwd,...) :
+clusterEvalQ(cl,{
+  library(lcmm)
+  library(factoextra)
+  library(fpc)
+  library(tidyr)
+  library(dplyr)
+  library(splines)
+  library(tidyverse)
+  library(psych)
+  library(cluster)
+}) 
 
 
-### 4.1.3. 3 solapats ----
-#### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_3_sol <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                                     slopes_values = list(c(-5, -5, -6, -6), c(-6, -10, -11, -13), c(-12, -14, -15, -15)),
-                                                     sd_b=c(2,2,2), sd_epsilon=c(4,4,4),
-                                                     ymin=c(7,7,7), ymax=c(49,49,49), format= "wide", time= c(0,2,6,12),
-                                                     num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_3_sol <- end_time - start_time
+## 4.1.CLUSTERING----
+## k=3 ----
+### 3 separats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sep_clust) Starting seed:", seed, "\n")
+  
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(4, 3, 0, 0), c(-1, -6, -7, -9), c(-12, -14, -15, -19)),
+    sd_b = c(1, 1, 1),
+    sd_epsilon = c(1, 1, 1),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
 
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_3_sol <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30),
-                                              slopes_values = list(c(-5, -5, -6, -6), c(-6, -10, -11, -13), c(-12, -14, -15, -15)),
-                                              sd_b=c(2,2,2), sd_epsilon=c(4,4,4),
-                                              ymin=c(7,7,7), ymax=c(49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_3_sol <- end_time - start_time
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_3_sep <- parLapply(cl, seeds, run_clustering_replica)
+})
 
-
-save.image("Results_simulations_170425_k3.RData")
-#load("Results_simulations_170425_k3.RData")
-
-## 4.2. Quatre grups ----
-prop_grupos <- c(Severe_NonResp = 0.25, Moderate_NonResp = 0.25, Fast_Resp = 0.25, Slow_Resp = 0.25)
-
-### 4.2.1. 4 separats ----
-### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_4_sep <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                                     slopes_values = list(c(4, 3, 3, 2.5), c(-3, -3.5, -3.1, -3.6), c(-3.5, -9, -9.5, -10), c(-12, -14, -15, -19)),
-                                                     sd_b=c(1,1,1,1), sd_epsilon=c(1,1,1,1),
-                                                     ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "wide", time= c(0,2,6,12),
-                                                     num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_4_sep <- end_time - start_time
-
-
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_4_sep <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                              slopes_values = list(c(4, 3, 3, 2.5), c(-3, -3.5, -3.1, -3.6), c(-3.5, -9, -9.5, -10), c(-12, -14, -15, -19)),
-                                              sd_b=c(1,1,1,1), sd_epsilon=c(1,1,1,1),
-                                              ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_4_sep <- end_time - start_time
+#### Combinar todos los resultados finales
+results_clust_3_sep <- combine_clustering_results(results_clust_list_3_sep)
 
 
-### 4.2.2. 2 separats i 2 solapats ----
-#### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_4_sep_sol <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                                     slopes_values = list(c(4, 3, 3, 2.5), c(0, -0.5, -0.1, -0.6), c(-7, -13, -14, -16), c(-13, -14, -16, -20)),
-                                                     sd_b=c(2,2,2,2), sd_epsilon=c(3,3,3,3),
-                                                     ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "wide", time= c(0,2,6,12),
-                                                     num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_4_sep_sol <- end_time - start_time
+### 1 separat i 2 solapats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sep_sol_clust) Starting seed:", seed, "\n")
+  
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(4, 3, 0, 0), c(-6, -12, -13, -15), c(-12, -13, -15, -19)),
+    sd_b = c(1,2,2),
+    sd_epsilon = c(2,3,3),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_3_sep_sol <- parLapply(cl, seeds, run_clustering_replica)
+})
+
+#### Combinar todos los resultados finales
+results_clust_3_sep_sol <- combine_clustering_results(results_clust_list_3_sep_sol)
 
 
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_4_sep_sol <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                              slopes_values = list(c(4, 3, 3, 2.5), c(0, -0.5, -0.1, -0.6), c(-7, -13, -14, -16), c(-13, -14, -16, -20)),
-                                              sd_b=c(2,2,2,2), sd_epsilon=c(3,3,3,3),
-                                              ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_4_sep_sol <- end_time - start_time
+
+### 3 solapats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sol_clust) Starting seed:", seed, "\n")
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(-5, -5, -6, -6), c(-6, -10, -11, -13), c(-12, -14, -15, -15)),
+    sd_b = c(2,2,2),
+    sd_epsilon = c(4, 4, 4),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_3_sol <- parLapply(cl, seeds, run_clustering_replica)
+})
+
+#### Combinar todos los resultados finales
+results_clust_3_sol <- combine_clustering_results(results_clust_list_3_sol)
 
 
-### 4.2.3. 4 solapats ----
-#### Clustering techniques
-start_time <- Sys.time()
-set.seed(123)
-results_clust_4_sol <- perform_clustering_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                              slopes_values = list(c(-4, -4, -4.5, -4.5), c(-6, -7.5, -7.5, -7), c(-6, -12, -12, -13), c(-11, -13, -15, -16)),
-                                              sd_b=c(2,2,2,2), sd_epsilon=c(4,4,4,4),
-                                              ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "wide", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_clust_4_sol <- end_time - start_time
+
+## k=4 ----
+### 4 separats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sep_clust) Starting seed:", seed, "\n")
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(4, 3, 3, 2.5), c(-3, -3.5, -3.1, -3.6), c(-3.5, -9, -9.5, -10), c(-12, -14, -15, -19)),
+    sd_b = c(1, 1, 1, 1),
+    sd_epsilon = c(1, 1, 1, 1),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_4_sep <- parLapply(cl, seeds, run_clustering_replica)
+})
+
+#### Combinar todos los resultados finales
+results_clust_4_sep <- combine_clustering_results(results_clust_list_4_sep)
 
 
-### LCMMs
-start_time <- Sys.time()
-set.seed(123)
-results_lcmm_4_sol <- perform_lcmm_simulation(n_ind = n_ind, prop_groups = prop_grupos, beta0_values= c(30, 30, 30, 30),
-                                              slopes_values = list(c(-4, -4, -4.5, -4.5), c(-6, -7.5, -7.5, -7), c(-6, -12, -12, -13), c(-11, -13, -15, -16)),
-                                              sd_b=c(2,2,2,2), sd_epsilon=c(4,4,4,4),
-                                              ymin=c(7,7,7,7), ymax=c(49,49,49,49), format= "long", time= c(0,2,6,12),
-                                              num_resamples = 500, k_range = 2:5, trace = TRUE, min.percentage = 5)
-end_time <- Sys.time()
-time_lcmm_4_sol <- end_time - start_time
+### 2 separats i 2 solapats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sep_sol_clust) Starting seed:", seed, "\n")
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(4, 3, 3, 2.5), c(0, -0.5, -0.1, -0.6), c(-7, -13, -14, -16), c(-13, -14, -16, -20)),
+    sd_b = c(2,2,2,2),
+    sd_epsilon = c(3,3,3,3),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_4_sep_sol <- parLapply(cl, seeds, run_clustering_replica)
+})
+
+#### Combinar todos los resultados finales
+results_clust_4_sep_sol <- combine_clustering_results(results_clust_list_4_sep_sol)
 
 
-save.image("Results_simulations_310525.RData")
+
+### 4 solapats ----
+#### Definir función wrapper para una sola réplica de clustering 
+run_clustering_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sol_clust) Starting seed:", seed, "\n")
+  result <- perform_clustering_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(-4, -4, -4.5, -4.5), c(-6, -7.5, -7.5, -7), c(-6, -12, -12, -13), c(-11, -13, -15, -16)),
+    sd_b = c(2,2,2, 2),
+    sd_epsilon = c(4, 4, 4, 4),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "wide",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,  # Una réplica por llamada
+    k_range = 2:5,
+    trace = T,  # Poner FALSE para menos output en paralelo
+    min.percentage = 5)
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_clust_list_4_sol <- parLapply(cl, seeds, run_clustering_replica)
+})
+
+#### Combinar todos los resultados finales
+results_clust_4_sol <- combine_clustering_results(results_clust_list_4_sol)
+
+
+
+save.image("results_sim_bal_3g_4g_clust.Rdata")
+
+## 5.2. LCMMs ----
+## k=3 ----
+### 3 separats ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sep_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(4, 3, 0, 0), c(-1, -6, -7, -9), c(-12, -14, -15, -19)),
+    sd_b = c(1, 1, 1),
+    sd_epsilon = c(1, 1, 1),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_3_sep <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+
+
+#### Combinar todos los resultados finales
+results_lcmm_3_sep <- combine_lcmm_results(results_lcmm_list_3_sep)
+
+
+
+### 3 separats-solapats ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sep_sol_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(4, 3, 0, 0), c(-6, -12, -13, -15), c(-12, -13, -15, -19)),
+    sd_b = c(1, 2,2),
+    sd_epsilon = c(2,3,3),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_3_sep_sol <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+#### Combinar todos los resultados finales
+results_lcmm_3_sep_sol <- combine_lcmm_results(results_lcmm_list_3_sep_sol)
+
+
+
+### 3 solapats ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(3_sol_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_3,
+    beta0_values = c(30, 30, 30),
+    slopes_values = list(c(-5, -5, -6, -6), c(-6, -10, -11, -13), c(-12, -14, -15, -15)),
+    sd_b = c(2,2,2),
+    sd_epsilon = c(4,4,4),
+    ymin = c(7, 7, 7),
+    ymax = c(49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_3_sol <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+#### Combinar todos los resultados finales
+results_lcmm_3_sol<- combine_lcmm_results(results_lcmm_list_3_sol)
+
+
+
+## Quatre Grups ----
+### k=4 ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sep_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(4, 3, 3, 2.5), c(-3, -3.5, -3.1, -3.6), c(-3.5, -9, -9.5, -10), c(-12, -14, -15, -19)),
+    sd_b = c(1, 1, 1, 1),
+    sd_epsilon = c(1, 1, 1, 1),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_4_sep <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+
+
+#### Combinar todos los resultados finales
+results_lcmm_4_sep <- combine_lcmm_results(results_lcmm_list_4_sep)
+
+
+
+### 4 separats-solapats ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sep_sol_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(4, 3, 3, 2.5), c(0, -0.5, -0.1, -0.6), c(-7, -13, -14, -16), c(-13, -14, -16, -20)),
+    sd_b = c(2,2,2,2),
+    sd_epsilon = c(3,3,3,3),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_4_sep_sol <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+#### Combinar todos los resultados finales
+results_lcmm_4_sep_sol <- combine_lcmm_results(results_lcmm_list_4_sep_sol)
+
+
+
+### 4 solapats ----
+#### Definir función wrapper para una sola réplica de LCMM 
+run_lcmm_replica <- function(seed) {
+  logfile <- paste0("worker_", Sys.getpid(), ".log")
+  
+  con <- file(logfile, open = "at")  # append text
+  sink(con)
+  sink(con, type = "message")
+  
+  on.exit({
+    sink(type="message")
+    sink()
+    close(con)
+  }, add = TRUE)
+  
+  set.seed(seed)
+  
+  cat("(4_sol_lcmm) Starting seed:", seed, "\n")
+  result <- perform_lcmm_simulation(
+    n_ind = n_ind,
+    prop_groups = prop_grupos_4,
+    beta0_values = c(30, 30, 30, 30),
+    slopes_values = list(c(-4, -4, -4.5, -4.5), c(-6, -7.5, -7.5, -7), c(-6, -12, -12, -13), c(-11, -13, -15, -16)),
+    sd_b = c(2,2,2,2),
+    sd_epsilon = c(4,4,4,4),
+    ymin = c(7, 7, 7, 7),
+    ymax = c(49, 49, 49, 49),
+    format = "long",
+    time = c(0, 2, 6, 12),
+    num_resamples = 1,
+    k_range = 2:5,
+    trace = T,
+    min.percentage = 5
+  )
+  
+  cat("Finished seed:", seed, "\n")
+  return(result)
+}
+
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results_lcmm_list_4_sol <- parLapply(cl, seeds, run_lcmm_replica)
+})
+
+#### Combinar todos los resultados finales
+results_lcmm_4_sol <- combine_lcmm_results(results_lcmm_list_4_sol)
+
+save.image("results_sim_bal_3g_4g_clust_lcmm.Rdata")
+
+stopCluster(cl)# Detener cluster

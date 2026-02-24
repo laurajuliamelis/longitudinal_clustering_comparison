@@ -14,27 +14,19 @@ This repository contains the analysis code for the article **"Clustering longitu
 
 
 
-- **`1_real_data_functions.R`**  
+- **1_Real_data_analysis**  
 
 &nbsp; Helper functions for the real-world data analysis.  
-
-
-
-- **`2_real_data_analysis.R`**  
 
 &nbsp; Script to run the analysis on the PEP cohort (first-episode psychosis symptomatology).  
 
 
 
-- **`3_simulations_functions.R`**  
+- **2_sSimulated_data_analysis**  
 
-&nbsp; Helper functions for the simulation studies.  
+&nbsp; Helper functions for the simulation analyses.  
 
-
-
-- **`4_simulations_analysis.R`**  
-
-&nbsp; Script to run the simulation analyses. These can be reproduced and adapted by other users.  
+&nbsp; Script to run the simulation analyses on balanced and unbalanced clusters. These can be reproduced and adapted by other users.  
 
 
 

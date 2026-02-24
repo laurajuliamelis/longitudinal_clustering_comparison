@@ -4,8 +4,8 @@
 # ========   Functions created for the simulated-data analysis      ========== #
 # ============================================================================ #
 
-# Cluster evaluation and agreement metrics  ----
-# Función para simular datos
+
+# Functions to simulate FEP patients data base on PEPs cohort ----
 simular_grupo <- function(beta0, slopes,sd_b, sd_epsilon, ymin, ymax, time, class_name, n, format = "long") {
   # Simular efectos aleatorios de intercepto para cada individuo
   bi <- rnorm(n, mean = 0, sd = sd_b)  # Variabilidad interindividual
@@ -26,8 +26,107 @@ simular_grupo <- function(beta0, slopes,sd_b, sd_epsilon, ymin, ymax, time, clas
   return(datos)
 }
 
+add_realistic_missingness <- function(sim_data,  format = c("long", "wide"), seed = NULL){
+  
+  format <- match.arg(format)
+  
+  if(!is.null(seed)) set.seed(seed)
+  
+  # IDs únics
+  ids <- unique(sim_data$id)
+  N <- length(ids)
+  
+  # Quantitats segons data real (cohort PEPS)
+  n_2_only   <- 2
+  n_6_only   <- 3
+  n_12_only  <- 26
+  n_2_6      <- 1
+  n_2_12     <- 1
+  n_6_12     <- 23
+  n_2_6_12   <- 0
+  
+  total_missing_ids <- n_2_only + n_6_only + n_12_only +
+    n_2_6 + n_2_12 + n_6_12 + n_2_6_12
+  
+  if(total_missing_ids > N){
+    stop("No hi ha suficients IDs a sim_data per assignar aquest patró de missings.")
+  }
+  
+  # Barregem IDs i assignem patrons
+  ids_shuffled <- sample(ids)
+  
+  idx <- 1
+  
+  ids_2_only  <- ids_shuffled[idx:(idx + n_2_only - 1)]
+  idx <- idx + n_2_only
+  
+  ids_6_only  <- ids_shuffled[idx:(idx + n_6_only - 1)]
+  idx <- idx + n_6_only
+  
+  ids_12_only <- ids_shuffled[idx:(idx + n_12_only - 1)]
+  idx <- idx + n_12_only
+  
+  ids_2_6     <- ids_shuffled[idx:(idx + n_2_6 - 1)]
+  idx <- idx + n_2_6
+  
+  ids_2_12    <- ids_shuffled[idx:(idx + n_2_12 - 1)]
+  idx <- idx + n_2_12
+  
+  ids_6_12    <- ids_shuffled[idx:(idx + n_6_12 - 1)]
+  idx <- idx + n_6_12
+  
+  ids_2_6_12  <- if(n_2_6_12 > 0) ids_shuffled[idx:(idx + n_2_6_12 - 1)] else character(0)
+  
+  # --- APLICAR MISSINGS ---
+  if(format == "long"){
+    
+    # comprovació mínima
+    needed_cols <- c("id", "time", "PANSS")
+    if(!all(needed_cols %in% names(sim_data))){
+      stop("Format long: calen les columnes id, time i PANSS.")
+    }
+    
+    sim_data$PANSS[sim_data$id %in% ids_2_only  & sim_data$time == 2]  <- NA
+    sim_data$PANSS[sim_data$id %in% ids_6_only  & sim_data$time == 6]  <- NA
+    sim_data$PANSS[sim_data$id %in% ids_12_only & sim_data$time == 12] <- NA
+    
+    sim_data$PANSS[sim_data$id %in% ids_2_6  & sim_data$time %in% c(2,6)]   <- NA
+    sim_data$PANSS[sim_data$id %in% ids_2_12 & sim_data$time %in% c(2,12)]  <- NA
+    sim_data$PANSS[sim_data$id %in% ids_6_12 & sim_data$time %in% c(6,12)]  <- NA
+    sim_data$PANSS[sim_data$id %in% ids_2_6_12 & sim_data$time %in% c(2,6,12)] <- NA
+    
+  } else if(format == "wide"){
+    
+    needed_cols <- c("id", "PANSS_t2", "PANSS_t6", "PANSS_t12")
+    if(!all(needed_cols %in% names(sim_data))){
+      stop("Format wide: calen les columnes id, PANSS_t2, PANSS_t6 i PANSS_t12.")
+    }
+    
+    sim_data$PANSS_t2[sim_data$id %in% ids_2_only]  <- NA
+    sim_data$PANSS_t6[sim_data$id %in% ids_6_only]  <- NA
+    sim_data$PANSS_t12[sim_data$id %in% ids_12_only] <- NA
+    
+    sim_data$PANSS_t2[sim_data$id %in% ids_2_6] <- NA
+    sim_data$PANSS_t6[sim_data$id %in% ids_2_6] <- NA
+    
+    sim_data$PANSS_t2[sim_data$id %in% ids_2_12] <- NA
+    sim_data$PANSS_t12[sim_data$id %in% ids_2_12] <- NA
+    
+    sim_data$PANSS_t6[sim_data$id %in% ids_6_12] <- NA
+    sim_data$PANSS_t12[sim_data$id %in% ids_6_12] <- NA
+    
+    if(length(ids_2_6_12) > 0){
+      sim_data$PANSS_t2[sim_data$id %in% ids_2_6_12] <- NA
+      sim_data$PANSS_t6[sim_data$id %in% ids_2_6_12] <- NA
+      sim_data$PANSS_t12[sim_data$id %in% ids_2_6_12] <- NA
+    }
+  }
+  
+  return(sim_data)
+}
 
-# Función para calcular kappa de cohen
+
+# Función para calcular kappa de cohen ----
 calcular_kappa_clusters <- function(df, group_col = "group_num", cluster_cols, k=k) {
   # Estandaritzem o alineem les etiquetes en funció del major num de coincidències
   ref_group <- df[[group_col]]
@@ -98,7 +197,7 @@ calcular_kappa_clusters <- function(df, group_col = "group_num", cluster_cols, k
 
 
 
-# Función para calcular ICC
+# Función para calcular ICC ----
 calculate_icc <- function(data, format = "long") {
   # PAS 1: Fer trajectòries individuals (una fila = un subjecte)
   if(format == "long"){
@@ -119,12 +218,24 @@ calculate_icc <- function(data, format = "long") {
   return(icc_result)
 }
 
+
+
+# Get results ----
 # Función para obtener el valor de k con el valor máximo de un subíndice dado para cada B
 opt_k_for_metric <- function(data, metric, min.percentage) {
   
   if (!is.null(min.percentage)){
-    howmany <- 
-      data <- subset(data, min.class >= min.percentage) 
+    data <- subset(data, min.class >= min.percentage) 
+  }
+  
+  if (nrow(data) == 0) {
+    # Retorna una fila indicant que no hi ha cap solució vàlida
+    return(data.frame(
+      B = NA,
+      k = NA,
+      Value = NA,
+      Metric = metric
+    ))
   }
   
   if(metric == "AIC" || metric=="BIC" || metric =="SABIC"){
@@ -143,6 +254,7 @@ opt_k_for_metric <- function(data, metric, min.percentage) {
       mutate(Metric = metric)
   }
 }
+
 
 # Función para obtener % de veces que k es máximo segun cada indice
 analyse_indexes <- function(data, k_range= 2:8, LCMM = NULL, min.percentage = NULL) {
@@ -403,10 +515,10 @@ perform_clustering_simulation <- function(n_ind, prop_groups, beta0_values, slop
     )
     data.sim$group <- factor(data.sim$group, levels = names(prop_groups))
     data.sim <- transform(data.sim, id = as.numeric(factor(id)))
-    icc <- c(icc, calculate_icc(data.sim, format = format)$r)
+    data.sim <- add_realistic_missingness(data.sim, format=format)
     
     # 2. Compute distance matrix
-    D <- dist(data.sim[,3:6])
+    D <- dist(as.matrix(data.sim[, 3:6]))
     
     # 3. Perform hierarchical clustering
     clust.hier <- hclust(D, method = "ward.D2")
@@ -440,31 +552,21 @@ perform_clustering_simulation <- function(n_ind, prop_groups, beta0_values, slop
   clust.pam.final <- analyse_indexes(clust.pam.results, k_range, LCMM = FALSE,
                                      min.percentage = min.percentage)
   
+  results.clust <- as.data.frame(bind_rows(clust.hier.final, clust.kmeans.final, clust.pam.final))
+  results.clust[,-1] <- round(results.clust[,-1],2)
+  results.clust$Technique <- rep(c("Hierarchical clustering", "K-means", "PAM"),each = 4)
+  results.clust <- results.clust[, c(ncol(results.clust),1:ncol(results.clust)-1)]
+  
   ## 4.2. Get number of discarded results because min.class < min.percentage
   if (!is.null(min.percentage)) {
     discarded.hier <- discards(clust.hier.results, k_range, min.percentage)
     discarded.kmeans <- discards(clust.kmeans.results, k_range, min.percentage)
     discarded.pam <- discards(clust.pam.results, k_range, min.percentage)
   }
+  results.discards <- bind_rows(discarded.hier, discarded.kmeans, discarded.pam)
+  rownames(results.discards) <- c("Hierarchical clustering", "K-means", "PAM")
   
-  ## 4.3. Get mean and sd of the metrics for each k
-  difference.hier <- metric_optimal_diff(clust.hier.results, k_range)
-  difference.kmeans <- metric_optimal_diff(clust.kmeans.results, k_range)
-  difference.pam <- metric_optimal_diff(clust.pam.results, k_range)
-  
-  ## 4.4. Get mean and sd of the metrics for each k
-  descriptive.hier <- metric_summary(clust.hier.results, k_range)
-  descriptive.kmeans <- metric_summary(clust.kmeans.results, k_range)
-  descriptive.pam <- metric_summary(clust.pam.results, k_range)
-  
-  ## 4.5. Get plots
-  plots <- metric_density_plots(clust.hier.results, clust.kmeans.results, clust.pam.results, k_range, LCMM=F)
-  
-  ## 4.6. Get ICC
-  icc_results <- data.frame("Mean"= mean(icc), "SD"= sd(icc), "Median"= median(icc), "IQR"= IQR(icc))
-  icc_results <- round(icc_results,3)
-  
-  ## 4.7. Get how many of the solutions discarded by min.class < min.percentage would have been considered optimal 
+  ## 4.3. Get how many of the solutions discarded by min.class < min.percentage would have been considered optimal 
   results.discarded_which_optimal <- bind_rows(
     discarded_optimal_summary(clust.hier.results, k_range, min.percentage, LCMM = FALSE),
     discarded_optimal_summary(clust.kmeans.results, k_range, min.percentage, LCMM = FALSE),
@@ -473,29 +575,9 @@ perform_clustering_simulation <- function(n_ind, prop_groups, beta0_values, slop
   rownames(results.discarded_which_optimal) <- c("Hierarchical clustering", "K-means", "PAM")
   results.discarded_which_optimal <- as.data.frame(results.discarded_which_optimal)
   
-  # 5. Combine results
-  results.clust <- as.data.frame(bind_rows(clust.hier.final, clust.kmeans.final, clust.pam.final))
-  results.clust[,-1] <- round(results.clust[,-1],2)
-  results.clust$Technique <- rep(c("Hierarchical clustering", "K-means", "PAM"),each = 4)
-  results.clust <- results.clust[, c(ncol(results.clust),1:ncol(results.clust)-1)]
-  
-  results.discards <- bind_rows(discarded.hier, discarded.kmeans, discarded.pam)
-  rownames(results.discards) <- c("Hierarchical clustering", "K-means", "PAM")
-  
-  results.difference <- bind_rows(difference.hier, difference.kmeans, difference.pam)
-  rownames(results.difference) <- c("Hierarchical clustering", "K-means", "PAM")
-  
-  results.descriptive <- bind_rows(descriptive.hier, descriptive.kmeans, descriptive.pam)
-  results.descriptive$Technique <- rep(c("Hierarchical clustering", "K-means", "PAM"),each = 4)
-  results.descriptive <- results.descriptive[, c(ncol(results.descriptive),1:ncol(results.descriptive)-1)]
-  
   return(list(Optimal_Models = results.clust, 
               Discard_Summary = results.discards,
-              Discarded_Optimal = results.discarded_which_optimal,
-              Difference = results.difference,
-              Mean_sd = results.descriptive,
-              Density_plots = plots,
-              ICC = icc_results))
+              Discarded_Optimal = results.discarded_which_optimal))
 }
 
 
@@ -539,10 +621,10 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
   
   sum.linear <- sum.quadratic <- sum.splines <- 0 # Conteo de no convergencias
   B <- 1
-  icc <- vector()
   
   while (B <= num_resamples) {
-    if (trace) cat("Simulation sample:", B, "\n")
+    #if (trace) cat("Simulation sample:", B, "\n")
+    if (trace) message(paste0("Simulation sample:", B))
     all_converged <- FALSE # Variable de control per assegurar la convergència de tots els models.
     
     while (!all_converged) {
@@ -556,8 +638,8 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
       )
       data.sim$group <- factor(data.sim$group, levels = names(prop_groups))
       data.sim <- transform(data.sim, id = as.numeric(factor(id)))
-      icc <- c(icc, calculate_icc(data.sim, format = format)$r)
-               
+      data.sim <- add_realistic_missingness(data.sim, format=format)
+      
       # 2. Ajustar modelos LCMM
       assign("lcmm.linear", hlme(PANSS ~ time, random = ~1, subject = "id", data = data.sim, ng = 1), envir = .GlobalEnv)
       assign("lcmm.quad", hlme(PANSS ~ time + I(time^2), random = ~1, subject = "id", data = data.sim, ng = 1), envir = .GlobalEnv)
@@ -566,11 +648,13 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
       convergences <- c(TRUE, TRUE, TRUE)  # Control per linear, quadratic i splines
       
       for (k in k_range) {
-        if (trace) cat("k =", k, "\n")
-        
+        #if (trace) cat("k =", k, "\n")
+        if (trace) message(paste0("k =", k))
+        #reps <- ifelse(k==2, 5, ifelse(k==3, 10, ifelse(k==4, 15, 20)))
+        reps = 100
         # 3.1. Linear
-        x <- hlme(PANSS ~ time, random = ~1, subject = "id", data = data.sim,
-                  mixture = ~ time, ng = k, B = random(lcmm.linear))
+        x <- gridsearch(hlme(PANSS ~ time, random = ~1, subject = "id", data = data.sim,
+                             mixture = ~ time, ng = k, B = random(lcmm.linear)), rep = reps, maxiter = 10, minit = lcmm.linear)
         if (x$conv %in% c(1, 3)) {
           lcmm.linear.results <- update_lcmm_results(lcmm.linear.results, B, k, 
                                                      as.data.frame(summarytable(x, which = c("G", "loglik", "AIC", "BIC", "SABIC", "entropy", "%class"), display = FALSE)))
@@ -580,10 +664,10 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
           if (trace) cat("Linear model did not converge. Re-sampling...\n")
           break
         }
-
+        
         # 3.2. Quadratic
-        x <- hlme(PANSS ~ time + I(time^2), random = ~1, subject = "id", data = data.sim,
-                  mixture = ~ time + I(time^2), ng = k, B = random(lcmm.quad))
+        x <- gridsearch(hlme(PANSS ~ time + I(time^2), random = ~1, subject = "id", data = data.sim,
+                             mixture = ~ time + I(time^2), ng = k, B = random(lcmm.quad)), rep = reps, maxiter = 10, minit = lcmm.quad)
         if (x$conv %in% c(1, 3)) {
           lcmm.quadratic.results <- update_lcmm_results(lcmm.quadratic.results, B, k, 
                                                         as.data.frame(summarytable(x, which = c("G", "loglik", "AIC", "BIC", "SABIC", "entropy", "%class"), display = FALSE)))
@@ -595,8 +679,8 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
         }
         
         # 3.3. Splines
-        x <- hlme(PANSS ~ns(time, knots = c(2, 6)), random = ~1, subject = "id", data = data.sim,
-                  mixture = ~ns(time, knots = c(2, 6)), ng = k, B = random(lcmm.splines))
+        x <- gridsearch(hlme(PANSS ~ns(time, knots = c(2, 6)), random = ~1, subject = "id", data = data.sim,
+                             mixture = ~ns(time, knots = c(2, 6)), ng = k, B = random(lcmm.splines)), rep = reps, maxiter = 10, minit = lcmm.splines)
         if (x$conv %in% c(1, 3)) {
           lcmm.splines.results <- update_lcmm_results(lcmm.splines.results, B, k, 
                                                       as.data.frame(summarytable(x, which = c("G", "loglik", "AIC", "BIC", "SABIC", "entropy", "%class"), display = FALSE)))
@@ -611,10 +695,20 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
       # Si tots els models han convergit, sortim del bucle intern
       all_converged <- all(convergences)
     }
-
+    
     B <- B + 1 # Passar a la següent remostra només si tot ha convergit
     if (trace) cat("\n")
   }
+  # Cleanup: remove temporary objects from global environment
+  rm(lcmm.linear, lcmm.quad, lcmm.splines, envir = .GlobalEnv)
+  
+  # PROVES:
+  message("Resultats lineals:")
+  print(lcmm.linear.results)
+  message("Resultats quadratics:")
+  print(lcmm.quadratic.results)
+  message("Resultats splines:")
+  print(lcmm.splines.results)
   
   # 4. Compute results
   ## 4.1. Get optimal k for each resample and index
@@ -624,6 +718,19 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
                                           LCMM = T, min.percentage =min.percentage)
   lcmm.splines.final <- analyse_indexes(lcmm.splines.results, k_range= k_range,
                                         LCMM = T, min.percentage =min.percentage)
+  # PROVES:
+  message("Resultats analyse_indexes() lineals:")
+  print(lcmm.linear.final)
+  message("Resultats analyse_indexes() quadratics:")
+  print(lcmm.quadratic.final)
+  message("Resultats analyse_indexes() splines:")
+  print(lcmm.splines.final)
+  
+  results.lcmm <- as.data.frame(bind_rows(lcmm.linear.final, lcmm.quadratic.final, lcmm.splines.final))
+  results.lcmm[,-1] <- round(results.lcmm[,-1],2)
+  results.lcmm$Technique <- rep(c("Linear", "Quadratic", "Splines"),each = 5)
+  results.lcmm <- results.lcmm[, c(ncol(results.lcmm),1:ncol(results.lcmm)-1)]
+  
   
   ## 4.2. Get number of discarded results because min.class < min.percentage
   if (!is.null(min.percentage)) {
@@ -631,30 +738,18 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
     discarded.quadratic <- discards(lcmm.quadratic.results, k_range, min.percentage)
     discarded.splines <- discards(lcmm.splines.results, k_range, min.percentage)
   }
+  results.discards <- bind_rows(discarded.linear, discarded.quadratic, discarded.splines)
+  rownames(results.discards) <- c("Linear", "Quadratic", "Splines")
   
-  ## 4.3. Get mean and sd of the difference between 2 optimal solutions
-  difference.linear <- metric_optimal_diff(lcmm.linear.results, k_range)
-  difference.quadratic <- metric_optimal_diff(lcmm.quadratic.results, k_range)
-  difference.splines <- metric_optimal_diff(lcmm.splines.results, k_range)
-  
-  ## 4.4. Get mean and sd of the metrics for each k
-  descriptive.linear <- metric_summary(lcmm.linear.results, k_range)
-  descriptive.quadratic <- metric_summary(lcmm.quadratic.results, k_range)
-  descriptive.splines <- metric_summary(lcmm.splines.results, k_range)
-  
-  ## 4.5. Get plots
-  plots <- metric_density_plots(lcmm.linear.results, lcmm.quadratic.results, lcmm.splines.results, k_range, LCMM=T)
-  
-  ## 4.6. Get convergence results
+  ## 4.3. Get convergence results
   convergence.linear <- data.frame("N"= sum.linear, "Percentage_sobre_B*length_k"= round(sum.linear/nrow(lcmm.linear.results)*100,2))
   convergence.quadratic <- data.frame("N"= sum.quadratic, "Percentage_sobre_B*length_k"= round(sum.quadratic/nrow(lcmm.quadratic.results)*100,2))
   convergence.splines <- data.frame("N"= sum.splines, "Percentage_sobre_B*length_k"= round(sum.splines/nrow(lcmm.splines.results)*100,2))
   
-  ## 4.7. Get ICC
-  icc_results <- data.frame("Mean"= mean(icc), "SD"= sd(icc), "Median"= median(icc), "IQR"= IQR(icc))
-  icc_results <- round(icc_results,3)
+  results.convergence <- bind_rows(convergence.linear, convergence.quadratic, convergence.splines)
+  rownames(results.convergence) <- c("Linear", "Quadratic", "Splines")
   
-  ## 4.8. Get how many of the solutions discarded by min.class < min.percentage would have been considered optimal 
+  ## 4.4. Get how many of the solutions discarded by min.class < min.percentage would have been considered optimal 
   results.discarded_which_optimal <- bind_rows(
     discarded_optimal_summary(lcmm.linear.results, k_range, min.percentage, LCMM = TRUE),
     discarded_optimal_summary(lcmm.quadratic.results, k_range, min.percentage, LCMM = TRUE),
@@ -663,34 +758,183 @@ perform_lcmm_simulation <- function(n_ind, prop_groups, beta0_values, slopes_val
   rownames(results.discarded_which_optimal) <- c("Linear", "Quadratic", "Splines")
   results.discarded_which_optimal <- as.data.frame(results.discarded_which_optimal)
   
-  # 5. Combine results
-  results.lcmm <- as.data.frame(bind_rows(lcmm.linear.final, lcmm.quadratic.final, lcmm.splines.final))
-  results.lcmm[,-1] <- round(results.lcmm[,-1],2)
-  results.lcmm$Technique <- rep(c("Linear", "Quadratic", "Splines"),each = 5)
-  results.lcmm <- results.lcmm[, c(ncol(results.lcmm),1:ncol(results.lcmm)-1)]
-  
-  results.discards <- bind_rows(discarded.linear, discarded.quadratic, discarded.splines)
-  rownames(results.discards) <- c("Linear", "Quadratic", "Splines")
-  
-  results.difference <- bind_rows(difference.linear, difference.quadratic, difference.splines)
-  rownames(results.difference) <- c("Linear", "Quadratic", "Splines")
-  
-  results.descriptive <- bind_rows(descriptive.linear, descriptive.quadratic, descriptive.splines)
-  results.descriptive$Technique <- rep(c("Linear", "Quadratic", "Splines"),each = 5)
-  results.descriptive <- results.descriptive[, c(ncol(results.descriptive),1:ncol(results.descriptive)-1)]
-  
-  results.convergence <- bind_rows(convergence.linear, convergence.quadratic, convergence.splines)
-  rownames(results.convergence) <- c("Linear", "Quadratic", "Splines")
-  
-  # Cleanup: remove temporary objects from global environment
-  rm(lcmm.linear, lcmm.quad, lcmm.splines, envir = .GlobalEnv)
-  
   return(list(Optimal_Models = results.lcmm, 
               Discard_Summary = results.discards,
               Discarded_Optimal = results.discarded_which_optimal,
-              Difference = results.difference,
-              Mean_sd = results.descriptive,
-              Density_plots = plots,
-              NonConvergence = results.convergence,
-              ICC = icc_results))
+              NonConvergence = results.convergence))
 }
+
+
+# PARALLELIZATION ---- 
+
+# Función para convertir matrices de texto a numéricas para promediar
+extract_numeric_matrix <- function(discard_mat) {
+  # Funció per processar una cel·la individual
+  process_cell <- function(cell) {
+    # Separar pel parèntesi i agafar la primera part
+    parts <- strsplit(as.character(cell), "\\(")[[1]]
+    # Retornar com a numèric (convertint a string i eliminant espais)
+    valor <- as.numeric(trimws(parts[1]))
+    return(ifelse(is.na(valor), 0, valor))
+  }
+  
+  # Aplicar a totes les cel·les de la matriu
+  resultat <- apply(discard_mat, c(1, 2), process_cell)
+  
+  # Mantenir els noms de files i columnes
+  rownames(resultat) <- rownames(discard_mat)
+  colnames(resultat) <- colnames(discard_mat)
+  
+  return(resultat)
+}
+
+# Funcion para promediar discarded_optimal matrices
+sum_discarded_optimal <- function(lista_matrices) {
+  # Procesar cada matriz
+  matrices_procesadas <- lapply(lista_matrices, function(mat) {
+    # Convertir a matriz de caracteres si no lo es
+    mat_char <- as.matrix(mat)
+    
+    # Aplicar función a cada celda
+    resultado <- apply(mat_char, c(1, 2), function(celda) {
+      if(is.na(celda) || celda == "-") {
+        return(0)
+      } else {
+        # Extraer número antes del paréntesis (si existe)
+        num_match <- regmatches(celda, regexpr("^\\s*\\d+", celda))
+        if(length(num_match) > 0) {
+          return(as.numeric(num_match))
+        } else {
+          # Intentar convertir directamente
+          num <- suppressWarnings(as.numeric(celda))
+          return(ifelse(is.na(num), 0, num))
+        }
+      }
+    })
+    
+    # Mantener nombres
+    dimnames(resultado) <- dimnames(mat)
+    return(resultado)
+  })
+  
+  # Sumar todas las matrices
+  Reduce("+", matrices_procesadas)
+}
+
+
+# Función para combinar resultados de clustering
+combine_clustering_results <- function(results_list) {
+  # results_list es una lista de resultados individuales de perform_clustering_simulation
+  
+  # 1. Combinar Optimal_Models (promediar los porcentajes)
+  optimal_models_list <- lapply(results_list, function(x) x$Optimal_Models) # extract only the first element of each list
+  combined_optimal <- optimal_models_list[[1]] # Inicializar con la estructura del primero
+  numeric_cols <- 3:ncol(combined_optimal) # Extraer las cols con los valores numéricos (columnas 1 y 2 son "Technique"  y "Metric")
+  
+  temp_sum <- combined_optimal[numeric_cols] * 0
+  for(i in seq_along(optimal_models_list)) { temp_sum <- temp_sum + optimal_models_list[[i]][numeric_cols]} # Sumar todos los valores
+  combined_optimal[numeric_cols] <- temp_sum / length(results_list) # Dividir la suma entre num de replicas (length de la lista)
+  
+  
+  # 2. Combinar Discard_Summary (promediar porcentajes)
+  discard_list <- lapply(results_list, function(x) x$Discard_Summary) # extract the second element of each replica
+  numeric_matrices <- lapply(discard_list, extract_numeric_matrix) # list of numeric matrices with # of discarded replicas for each k and method
+  suma_total <- Reduce("+", numeric_matrices) # sum results
+  
+  ## Convertir a formato de texto
+  combined_discard <- discard_list[[1]]
+  for(i in 1:nrow(suma_total)) {
+    for(j in 1:ncol(suma_total)) {
+      N <- suma_total[i,j]
+      percent <- round((N / length(results_list))* 100, 2)
+      combined_discard[i,j] <- paste0(N, "(", percent, "%)")
+    }
+  }
+  
+  
+  # 3. Combinar Discarded_Optimal
+  discarded_optimal_list <- lapply(results_list, function(x) x$Discarded_Optimal) # extract the second element of each replica
+  suma_total <- sum_discarded_optimal(discarded_optimal_list)
+  
+  combined_discarded_optimal <- discarded_optimal_list[[1]]
+  for(i in 1:nrow(suma_total)) {
+    for(j in 1:ncol(suma_total)) {
+      N <- suma_total[i,j]
+      percent <- round((N / length(results_list))* 100, 2)
+      combined_discarded_optimal[i,j] <- paste0(N, "(", percent, "%)")
+    }
+  }
+  
+  # Devolver estructura combinada
+  return(list(Optimal_Models = combined_optimal,
+              Discard_Summary = combined_discard,
+              Discarded_Optimal = combined_discarded_optimal))
+}
+
+# Función para combinar resultados de LCMM
+combine_lcmm_results <- function(results_list) {
+  
+  # 1. Combinar Optimal_Models
+  optimal_models_list <- lapply(results_list, function(x) x$Optimal_Models) # extract only the first element of each list
+  combined_optimal <- optimal_models_list[[1]] # Inicializar con la estructura del primero
+  numeric_cols <- 3:ncol(combined_optimal) # Extraer las cols con los valores numéricos (columnas 1 y 2 son "Technique"  y "Metric")
+  
+  temp_sum <- combined_optimal[numeric_cols] * 0 # Sumar todos los valores
+  for(i in seq_along(optimal_models_list)) { temp_sum <- temp_sum + optimal_models_list[[i]][numeric_cols]}
+  combined_optimal[numeric_cols] <- temp_sum / length(results_list) # Dividir la suma entre num de replicas (length de la lista)
+  
+  
+  
+  # 2. Combinar Discard_Summary
+  discard_list <- lapply(results_list, function(x) x$Discard_Summary) # extract the second element of each replica
+  numeric_matrices <- lapply(discard_list, extract_numeric_matrix) # list of numeric matrices with # of discarded replicas for each k and method
+  suma_total <- Reduce("+", numeric_matrices) # sum results
+  
+  ## Convertir a formato de texto
+  combined_discard <- discard_list[[1]]
+  for(i in 1:nrow(suma_total)) {
+    for(j in 1:ncol(suma_total)) {
+      N <- suma_total[i,j]
+      percent <- round((N / length(results_list))* 100, 2)
+      combined_discard[i,j] <- paste0(N, "(", percent, "%)")
+    }
+  }
+  
+  
+  # 3. Combinar Discarded_Optimal
+  discarded_optimal_list <- lapply(results_list, function(x) x$Discarded_Optimal) # extract the second element of each replica
+  suma_total <- sum_discarded_optimal(discarded_optimal_list)
+  
+  combined_discarded_optimal <- discarded_optimal_list[[1]]
+  for(i in 1:nrow(suma_total)) {
+    for(j in 1:ncol(suma_total)) {
+      N <- suma_total[i,j]
+      percent <- round((N / length(results_list))* 100, 2)
+      combined_discarded_optimal[i,j] <- paste0(N, "(", percent, "%)")
+    }
+  }
+  
+  # 4. Combinar NonConvergence
+  nonconv_list <- lapply(results_list, function(x) x$NonConvergence)
+  combined_nonconv <- nonconv_list[[1]]
+  
+  # Sumar valores N
+  n_values <- matrix(0, nrow = nrow(combined_nonconv), ncol = 1)
+  perc_values <- matrix(0, nrow = nrow(combined_nonconv), ncol = 1)
+  
+  for(i in seq_along(nonconv_list)) {
+    n_values[1,] <- n_values[1,] + nonconv_list[[i]][1,1]
+    n_values[2,] <- n_values[2,] + nonconv_list[[i]][2,1]
+    n_values[3,] <- n_values[3,] + nonconv_list[[i]][3,1]
+  }
+  
+  combined_nonconv[,1] <- n_values
+  combined_nonconv[,2] <- (n_values/ (length(results_list)*4))*100
+  
+  # Devolver estructura combinada
+  return(list(Optimal_Models = combined_optimal,
+              Discard_Summary = combined_discard,
+              Discarded_Optimal = combined_discarded_optimal,
+              NonConvergence = combined_nonconv))
+}
+

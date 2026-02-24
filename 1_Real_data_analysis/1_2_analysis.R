@@ -36,7 +36,7 @@ library(gtools)
 library(fda)
 
 # Load my functions:
-source("1_real_data_functions.R")
+source("1_1_functions.R")
 
 
 # ------------------ #
@@ -721,3 +721,106 @@ plot_pos_3 <- plot_icc_clusters(data_icc_pos, k = 3)
 plot_pos_4 <- plot_icc_clusters(data_icc_pos, k = 4)
 plot_pos_5 <- plot_icc_clusters(data_icc_pos, k = 5)
 
+
+# ---------------------- #
+# 7. PARALELIZATION ----
+# ---------------------- #
+library(parallel)
+library(pbapply)
+
+## 7.1 Set up ----
+source("my_functions.R")
+
+# Number of available cores
+n_cores <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = parallel::detectCores()))
+n_cores <- min(39, n_cores - 1) # deixa 1 core lliure per SLURM/OS
+cat("SLURM_CPUS_PER_TASK:", n_cores, "\n")
+cat("hostname:", system("hostname", intern=TRUE), "\n")
+cat("nproc:", system("nproc", intern=TRUE), "\n")
+
+
+# Create a parallel socket cluster (now the workers are separate R session and they're empty)
+cl <- makeCluster(n_cores)
+
+# Export objects and/or functions to each worker:
+clusterExport(cl, varlist=c("opt_k_for_metric", 
+                            "analyse_indexes", 
+                            "discards",
+                            "discarded_optimal_summary",
+                            "initialize_lcmm_results", 
+                            "update_lcmm_results", 
+                            "perform_lcmm_analysis_gs",
+                            "data_neg_long",
+                            "data_pos_long")) # from .GlobalEnv to the workers
+
+# Execute code inside each worker (load libraries, setwd,...) :
+clusterEvalQ(cl,{
+  library(lcmm)
+  library(factoextra)
+  library(fpc)
+  library(tidyr)
+  library(dplyr)
+  library(splines)
+  library(tidyverse)
+  library(psych)
+  library(cluster)
+}) 
+
+num_resamples <- 500
+seeds <- 123 + 0:(num_resamples - 1)
+
+
+### Negative PANSS
+run_lcmm_replica <- function(seed) {
+  set.seed(seed)
+  result <- perform_lcmm_analysis_gs(
+    data= data_neg_long, 
+    response= "PANSS_negativos",
+    time= "Time", 
+    knots = "c(2,6)", 
+    num_resamples = 1,
+    k_range = 2:5, 
+    min.percentage = 5
+  )
+  
+  return(result)
+}
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results.lcmm_list_neg <- pblapply(seeds, run_lcmm_replica, cl = cl)
+})
+
+saveRDS(results.lcmm_list_neg, file="results.lcmm_list_neg.rds")
+
+#### Combinar todos los resultados finales
+results.lcmm_neg <- combine_lcmm_results(results.lcmm_list_neg)
+saveRDS(results.lcmm_neg, file="results.lcmm_neg.rds")
+
+
+### Positive PANSS
+run_lcmm_replica <- function(seed) {
+  set.seed(seed)
+  
+  result <- perform_lcmm_analysis_gs(
+    data= data_neg_long, 
+    response= "PANSS_positivos",
+    time= "Time", 
+    knots = "c(2,6)", 
+    num_resamples = 1,
+    k_range = 2:5, 
+    min.percentage = 5
+  )
+  
+  return(result)
+}
+#### Correr las simulacions tantas veces como num_resamples y guardamos todo en una lista:
+system.time({
+  results.lcmm_list_pos <- pblapply(seeds, run_lcmm_replica, cl = cl)
+})
+saveRDS(results.lcmm_list_pos, file="results.lcmm_list_pos.rds")
+
+#### Combinar todos los resultados finales
+results.lcmm_pos <- combine_lcmm_results(results.lcmm_list_pos)
+saveRDS(results.lcmm_pos, file="results.lcmm_pos.rds")
+
+save.image("Results_bootstraps_120226_gs100.RData")
